@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canvas Assignments</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <div class="header-right">
+    <select id="course-select"><option value="all">All courses</option></select>
+    <div class="filter-tabs">
+      <button class="tab active" data-filter="all">All</button>
+      <button class="tab" data-filter="upcoming">Upcoming</button>
+      <button class="tab" data-filter="overdue">Overdue</button>
+      <button class="tab" data-filter="no-date">No date</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="error-banner" id="error-banner"></div>
+
+  <div class="stats-row" id="courses-row">
+    <!-- Course grades will be rendered here -->
+  </div>
+
+  <div class="search-row">
+    <input class="search-input" id="search" placeholder="Search assignments…" type="text">
+  </div>
+
+  <div id="list-container">
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <div>Fetching your assignments…</div>
+    </div>
+  </div>
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
