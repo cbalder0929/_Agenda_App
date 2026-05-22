@@ -10,6 +10,19 @@
 <body>
 
 <header>
+  <div class="notif-wrapper" id="notif-wrapper">
+    <button class="notif-btn" id="notif-btn" aria-label="Notifications">
+      &#x1F514;
+      <span class="notif-badge" id="notif-badge"></span>
+    </button>
+    <div class="notif-panel" id="notif-panel">
+      <div class="notif-panel-head">
+        <span class="notif-panel-title">Notifications</span>
+        <button class="notif-mark-all" id="notif-mark-all">Mark all read</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
+  </div>
   <div class="header-right">
     <select id="course-select"><option value="all">All courses</option></select>
     <div class="filter-tabs">

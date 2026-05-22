@@ -1,0 +1,5 @@
+node_modules/
+agendi.db
+agendi.db-shm
+agendi.db-wal
+.env
