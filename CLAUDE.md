@@ -4,7 +4,7 @@
 
 A Canvas LMS assignment tracker for Columbia College Chicago (`canvas.colum.edu`). Runs as a Node.js HTTP server that proxies Canvas API requests, persists data in PostgreSQL, and serves a vanilla JS frontend. Deploys free on Render + Neon (see `deploy.md`).
 
-Dependencies: `pg` (PostgreSQL client), `node-cron` planned but not yet installed (scheduler uses `setInterval`). No frontend framework, no bundler, no TypeScript.
+Dependencies: `pg` (PostgreSQL client), `dotenv` (loads `.env` at startup). `node-cron` planned but not yet installed — scheduler uses `setInterval`. No frontend framework, no bundler, no TypeScript.
 
 ## File map
 
@@ -36,7 +36,7 @@ Server setInterval              → scheduler.checkDeadlines() → INSERT notifi
 
 ### Key constants
 
-- `server.js` — `DOMAIN`, `TOKEN` (env var `CANVAS_TOKEN`, fallback hardcoded — do not log), `PORT` (env var `PORT`, default 3001 — Render injects it)
+- `server.js` — `DOMAIN`, `TOKEN` (env var `CANVAS_TOKEN`, fallback hardcoded — do not log), `PORT` (env var `PORT`, default 3001 — Render injects it). `require('dotenv').config()` runs at the top.
 - `db/index.js` — `DATABASE_URL` env var is **required** (Postgres connection string); process exits at startup if unset
 - `script.js:1` — `DOMAIN` must match server.js
 - `script.js:2` — `PROXY_BASE` auto-switches between `localhost:3001` and `window.location.origin`
@@ -59,8 +59,16 @@ PostgreSQL, accessed via `pg`. `db/index.js` exports a connection `pool`, a `que
 
 ## Frontend logic (script.js)
 
+**Header — student info:**
+- `.header-left` wraps `.notif-wrapper` (bell) + `.student-info` (semester, name, GPA)
+- Semester pulled from `courseList[0]?.term?.name` — courses URL includes `&include[]=term`, fallback "Spring 2026"
+- Name fetched from `${BASE}/users/self/profile` (single object, not fetchAll) — `.name` or `.short_name`, escaped with `escHtml()`
+- GPA computed via `scoreToGpaPoints()` (standard 4.0 unweighted scale) averaged over courses with a numeric `computed_current_score`; displayed as "GPA 3.xx" or "GPA —"
+- Profile fetch is fire-and-forget — failure leaves name blank, does not affect assignment load
+- Filter tabs live in `<main>` (below the search bar), not in the header
+
 **Data pipeline:**
-1. `load()` — fetches courses (with grades), then assignments per course in parallel with `include[]=submission&include[]=submission_comments`
+1. `load()` — fetches courses (`include[]=total_scores&include[]=term`), then assignments per course in parallel with `include[]=submission&include[]=submission_comments`
 2. Each raw Canvas object → `normalizeAssignment()` → clean flat model stored in `allAssignments[]`
 3. `render()` reads only normalized fields — no Canvas API shape leaks into the DOM layer
 4. After render: `syncWithServer(allAssignments)` POSTs to `/api/sync` (fire-and-forget, non-blocking)
@@ -80,6 +88,8 @@ PostgreSQL, accessed via `pg`. `db/index.js` exports a connection `pool`, a `que
 - Falls back to raw `grade` string (letter grade) if no numeric score
 
 **Course cards:** `scoreToLetterGrade(score)` — standard A+/A/A-/.../F scale
+
+**GPA helper:** `scoreToGpaPoints(score)` — maps 0-100 percentage to 4.0 scale (93+ → 4.0, 90-92 → 3.7, … below 60 → 0.0)
 
 **Notifications:** `loadNotifications()` on page init + panel open. `TYPE_LABEL` maps type strings to display labels. `relativeTime()` for timestamps.
 

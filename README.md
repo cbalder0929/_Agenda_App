@@ -16,7 +16,8 @@ Built for `canvas.colum.edu`.
 - Filters by course, status tab, or free-text search
 - **Notification center** (bell icon) — alerts for new assignments, posted grades, and approaching deadlines
 - **Background scheduler** — deadline alerts fire server-side every 15 minutes (24h warning, 3h warning, overdue)
-- Persists assignment and notification data in a local SQLite database
+- **Student info header** — shows your name, semester, and unweighted GPA (pulled live from Canvas)
+- Persists assignment and notification data in PostgreSQL (Neon)
 
 ---
 
@@ -24,6 +25,7 @@ Built for `canvas.colum.edu`.
 
 - [Node.js](https://nodejs.org/) v18 or higher
 - A Canvas API token from your school account
+- A PostgreSQL database (free tier on [Neon](https://neon.tech) works)
 
 ---
 
@@ -41,20 +43,18 @@ npm install
 2. Go to **Account → Settings → Approved Integrations**
 3. Click **+ New Access Token**, give it a name, and copy the token
 
-### 3. Set your token
+### 3. Create a `.env` file
 
-Set it as an environment variable (keeps the token out of the source file):
+Create `.env` in the project root (already gitignored):
 
-```powershell
-$env:CANVAS_TOKEN = "your_token_here"
-node server.js
+```
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+CANVAS_TOKEN=your_token_here
 ```
 
-```bash
-CANVAS_TOKEN=your_token_here node server.js
-```
+`DATABASE_URL` is required — the server exits at startup if it's missing. Get a free Postgres database at [neon.tech](https://neon.tech) and paste the connection string.
 
-Or open `server.js` and replace the fallback value on the `TOKEN` line directly — but do not commit it.
+`CANVAS_TOKEN` can also be set as a shell environment variable instead.
 
 ### 4. Open the app
 
@@ -69,9 +69,9 @@ On first load the app syncs all your Canvas assignments into the local database.
 ## How it works
 
 ```
-Browser → POST /api/sync → AssignmentWatcher + GradeWatcher → SQLite
+Browser → POST /api/sync → AssignmentWatcher + GradeWatcher → PostgreSQL
 Browser → GET  /proxy/api/v1/... → canvas.colum.edu/api/v1/...
-Server  → setInterval (15 min) → scheduler → SQLite notifications
+Server  → setInterval (15 min) → scheduler → PostgreSQL notifications
 ```
 
 - **Proxy** — all Canvas API calls go through the local server to avoid CORS. The server attaches your token before forwarding.
@@ -86,13 +86,11 @@ Server  → setInterval (15 min) → scheduler → SQLite notifications
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABASE_URL` | required | PostgreSQL connection string |
 | `CANVAS_TOKEN` | fallback in server.js | Your Canvas API token |
 | `PORT` | `3001` | Port the server listens on |
 
-```powershell
-$env:PORT = "8080"
-node server.js
-```
+All three can be set in `.env` or as shell environment variables. On Render, set them in the service's **Environment** tab.
 
 ---
 
@@ -105,8 +103,9 @@ node server.js
 ├── script.js                   # All frontend logic
 ├── styles.css                  # Styles
 ├── package.json
+├── .env                        # Local env vars (gitignored)
 ├── db/
-│   ├── index.js                # Opens SQLite, runs schema on first start
+│   ├── index.js                # pg Pool, init() applies schema idempotently
 │   └── schema.sql              # assignments + notifications tables
 └── services/
     ├── assignmentWatcher.js    # Detects new assignments, writes to DB
@@ -114,12 +113,10 @@ node server.js
     └── scheduler.js            # Background deadline alert engine
 ```
 
-`agendi.db` is created automatically in the project root on first run and is excluded from git.
-
 ---
 
 ## Notes
 
-- Do not commit your Canvas token. Use `CANVAS_TOKEN` env var or a `.env` file (`.env` is in `.gitignore`).
+- Do not commit credentials. Use `.env` locally; use Render's Environment tab in production. `.env` is gitignored.
 - `DOMAIN` is defined in both `server.js` and `script.js` — keep them in sync if changing Canvas instances.
 - The app is currently single-user. Sprint 3 adds accounts and per-user Canvas tokens.

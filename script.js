@@ -30,6 +30,21 @@ function escHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function scoreToGpaPoints(score) {
+  if (score >= 93) return 4.0;
+  if (score >= 90) return 3.7;
+  if (score >= 87) return 3.3;
+  if (score >= 83) return 3.0;
+  if (score >= 80) return 2.7;
+  if (score >= 77) return 2.3;
+  if (score >= 73) return 2.0;
+  if (score >= 70) return 1.7;
+  if (score >= 67) return 1.3;
+  if (score >= 63) return 1.0;
+  if (score >= 60) return 0.7;
+  return 0.0;
+}
+
 function scoreToLetterGrade(score) {
   if (score >= 97) return 'A+';
   if (score >= 93) return 'A';
@@ -103,8 +118,23 @@ async function fetchAll(url) {
 
 async function load() {
   try {
-    const courseList = await fetchAll(`${BASE}/courses?enrollment_state=active&include[]=total_scores&per_page=50`);
+    const courseList = await fetchAll(`${BASE}/courses?enrollment_state=active&include[]=total_scores&include[]=term&per_page=50`);
     courseList.forEach(c => { if (c.name) courses[c.id] = c; });
+
+    const semester = courseList[0]?.term?.name || 'Spring 2026';
+    document.querySelector('.si-semester').textContent = semester;
+
+    const gpaPoints = courseList
+      .filter(c => c.name && c.enrollments?.[0]?.computed_current_score != null)
+      .map(c => scoreToGpaPoints(c.enrollments[0].computed_current_score));
+    document.getElementById('si-gpa').textContent = gpaPoints.length
+      ? 'GPA ' + (gpaPoints.reduce((s, v) => s + v, 0) / gpaPoints.length).toFixed(2)
+      : 'GPA —';
+
+    fetch(`${BASE}/users/self/profile`)
+      .then(r => r.ok ? r.json() : null)
+      .then(p => { if (p) document.getElementById('si-name').innerHTML = escHtml(p.name || p.short_name || ''); })
+      .catch(() => {});
 
     const sel = document.getElementById('course-select');
     courseList.filter(c => c.name).forEach(c => {
