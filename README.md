@@ -1,18 +1,22 @@
-# Canvas Agenda
+# Agendi
 
-A lightweight web app that pulls your Canvas LMS assignments and displays them in a clean, filterable list with course grades and submission status.
+A Canvas LMS assignment tracker for Columbia College Chicago. Pulls your assignments, tracks grades, and sends you alerts when deadlines approach or grades are posted — all running locally with no cloud service required.
 
-Built for Columbia College Chicago (`canvas.colum.edu`).
+Built for `canvas.colum.edu`.
 
 ---
 
 ## What it does
 
-- Shows all assignments from your active Canvas courses
+- Shows all assignments from your active Canvas courses, sorted newest first
 - Groups them by status: **Overdue**, **Due this week**, **Upcoming**, **No due date**
-- Displays your current grade per course
-- Lets you filter by course, status tab, or free-text search
-- Shows whether each assignment has been turned in
+- Displays your current letter grade (A/B+/C- etc.) per course using standard plus/minus scale
+- Shows grade percentage with color coding (green ≥80%, yellow 60–79%, red <60%) on each assignment card
+- Shows submission feedback when your professor leaves a comment
+- Filters by course, status tab, or free-text search
+- **Notification center** (bell icon) — alerts for new assignments, posted grades, and approaching deadlines
+- **Background scheduler** — deadline alerts fire server-side every 15 minutes (24h warning, 3h warning, overdue)
+- Persists assignment and notification data in a local SQLite database
 
 ---
 
@@ -25,21 +29,21 @@ Built for Columbia College Chicago (`canvas.colum.edu`).
 
 ## Setup
 
-### 1. Get your Canvas API token
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Get your Canvas API token
 
 1. Log in to Canvas at [canvas.colum.edu](https://canvas.colum.edu)
 2. Go to **Account → Settings → Approved Integrations**
 3. Click **+ New Access Token**, give it a name, and copy the token
 
-### 2. Set your token
+### 3. Set your token
 
-Open `server.js` and replace the token value on line 6:
-
-```js
-const TOKEN = process.env.CANVAS_TOKEN || 'YOUR_TOKEN_HERE';
-```
-
-Or set it as an environment variable (recommended — keeps the token out of the file):
+Set it as an environment variable (keeps the token out of the source file):
 
 ```powershell
 $env:CANVAS_TOKEN = "your_token_here"
@@ -50,33 +54,31 @@ node server.js
 CANVAS_TOKEN=your_token_here node server.js
 ```
 
-### 3. Install and run
+Or open `server.js` and replace the fallback value on the `TOKEN` line directly — but do not commit it.
 
-No dependencies to install. Just start the server:
-
-```bash
-node server.js
-```
-
-Then open your browser to:
+### 4. Open the app
 
 ```
 http://localhost:3001
 ```
 
+On first load the app syncs all your Canvas assignments into the local database. The bell icon will show a count of new notifications — hit **Mark all read** to clear the first-run batch.
+
 ---
 
 ## How it works
 
-The app is a small Node.js HTTP server (`server.js`) with no npm dependencies.
-
-- **Static files** (`canvas-assignments.html`, `styles.css`, `script.js`) are served directly.
-- **Canvas API requests** from the browser go to `/proxy/api/v1/...` on the local server, which forwards them to `canvas.colum.edu` with your token attached. This avoids CORS issues that would block direct browser requests.
-- The frontend (`script.js`) fetches your courses and assignments, handles pagination, and renders everything client-side.
-
 ```
-Browser → localhost:3001/proxy/api/v1/... → canvas.colum.edu/api/v1/...
+Browser → POST /api/sync → AssignmentWatcher + GradeWatcher → SQLite
+Browser → GET  /proxy/api/v1/... → canvas.colum.edu/api/v1/...
+Server  → setInterval (15 min) → scheduler → SQLite notifications
 ```
+
+- **Proxy** — all Canvas API calls go through the local server to avoid CORS. The server attaches your token before forwarding.
+- **Sync** — after every page load the browser POSTs the normalized assignment list to `/api/sync`. The server diffs it against the database and creates notifications for anything new or changed.
+- **Watchers** — `AssignmentWatcher` detects new assignments; `GradeWatcher` detects posted or changed grades. They run on every sync.
+- **Scheduler** — runs server-side every 15 minutes, checks due dates, fires deadline alerts once per assignment per threshold (deduped).
+- **Notification center** — bell icon in the header with live unread count. Click to open the panel; click a notification to mark it read.
 
 ---
 
@@ -84,10 +86,8 @@ Browser → localhost:3001/proxy/api/v1/... → canvas.colum.edu/api/v1/...
 
 | Variable | Default | Description |
 |---|---|---|
-| `CANVAS_TOKEN` | hardcoded in server.js | Your Canvas API token |
+| `CANVAS_TOKEN` | fallback in server.js | Your Canvas API token |
 | `PORT` | `3001` | Port the server listens on |
-
-To use a different port:
 
 ```powershell
 $env:PORT = "8080"
@@ -100,16 +100,26 @@ node server.js
 
 ```
 .
-├── server.js               # Node HTTP server + Canvas API proxy
-├── canvas-assignments.html # App shell (HTML)
-├── script.js               # All frontend logic
-├── styles.css              # Styles
-└── package.json
+├── server.js                   # HTTP server, proxy, API routes
+├── canvas-assignments.html     # App shell
+├── script.js                   # All frontend logic
+├── styles.css                  # Styles
+├── package.json
+├── db/
+│   ├── index.js                # Opens SQLite, runs schema on first start
+│   └── schema.sql              # assignments + notifications tables
+└── services/
+    ├── assignmentWatcher.js    # Detects new assignments, writes to DB
+    ├── gradeWatcher.js         # Detects grade changes, writes notifications
+    └── scheduler.js            # Background deadline alert engine
 ```
+
+`agendi.db` is created automatically in the project root on first run and is excluded from git.
 
 ---
 
 ## Notes
 
-- Do not commit your Canvas token to git. Use the `CANVAS_TOKEN` environment variable instead.
-- This is hardcoded for `canvas.colum.edu`. To use a different Canvas instance, change the `DOMAIN` constant in both `server.js` (line 7) and `script.js` (line 1).
+- Do not commit your Canvas token. Use `CANVAS_TOKEN` env var or a `.env` file (`.env` is in `.gitignore`).
+- `DOMAIN` is defined in both `server.js` and `script.js` — keep them in sync if changing Canvas instances.
+- The app is currently single-user. Sprint 3 adds accounts and per-user Canvas tokens.
