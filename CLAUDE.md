@@ -2,9 +2,9 @@
 
 ## What this is
 
-A Canvas LMS assignment tracker for Columbia College Chicago (`canvas.colum.edu`). Runs as a local Node.js HTTP server that proxies Canvas API requests, persists data in SQLite, and serves a vanilla JS frontend.
+A Canvas LMS assignment tracker for Columbia College Chicago (`canvas.colum.edu`). Runs as a Node.js HTTP server that proxies Canvas API requests, persists data in PostgreSQL, and serves a vanilla JS frontend. Deploys free on Render + Neon (see `deploy.md`).
 
-Dependencies: `better-sqlite3` (DB), `node-cron` planned but not yet installed (scheduler uses `setInterval`). No frontend framework, no bundler, no TypeScript.
+Dependencies: `pg` (PostgreSQL client), `node-cron` planned but not yet installed (scheduler uses `setInterval`). No frontend framework, no bundler, no TypeScript.
 
 ## File map
 
@@ -14,7 +14,7 @@ canvas-assignments.html     App shell — minimal HTML, no inline logic
 script.js                   All frontend logic
 styles.css                  All styles, CSS custom properties in :root
 db/
-  index.js                  Opens agendi.db, runs schema idempotently, exports db instance
+  index.js                  Creates pg Pool, init() runs schema idempotently, exports { pool, query, init }
   schema.sql                assignments + notifications tables
 services/
   assignmentWatcher.js      Diffs incoming assignments vs DB, creates new_assignment notifications
@@ -28,7 +28,7 @@ services/
 
 ```
 Browser fetch(/proxy/api/v1/...) → server.js strips /proxy → HTTPS to canvas.colum.edu → pipe back
-Browser POST /api/sync          → gradeWatcher.check() → assignmentWatcher.sync() → SQLite
+Browser POST /api/sync          → await gradeWatcher.check() → await assignmentWatcher.sync() → Postgres
 Browser GET  /api/notifications → SELECT notifications ORDER BY created_at DESC
 Browser POST /api/notifications/read → UPDATE read=1
 Server setInterval              → scheduler.checkDeadlines() → INSERT notifications
@@ -36,13 +36,14 @@ Server setInterval              → scheduler.checkDeadlines() → INSERT notifi
 
 ### Key constants
 
-- `server.js` — `DOMAIN`, `TOKEN` (env var `CANVAS_TOKEN`, fallback hardcoded — do not log), `PORT` (default 3001)
+- `server.js` — `DOMAIN`, `TOKEN` (env var `CANVAS_TOKEN`, fallback hardcoded — do not log), `PORT` (env var `PORT`, default 3001 — Render injects it)
+- `db/index.js` — `DATABASE_URL` env var is **required** (Postgres connection string); process exits at startup if unset
 - `script.js:1` — `DOMAIN` must match server.js
 - `script.js:2` — `PROXY_BASE` auto-switches between `localhost:3001` and `window.location.origin`
 
 ## Database
 
-`agendi.db` created at project root on first `require('./db')`. WAL mode, foreign keys on.
+PostgreSQL, accessed via `pg`. `db/index.js` exports a connection `pool`, a `query(text, params)` helper, and `init()` which applies `schema.sql` idempotently (`CREATE TABLE IF NOT EXISTS`). `server.js` awaits `db.init()` before `server.listen`. SSL is on for remote hosts, off for `localhost`. **All DB access is async** — watchers and route handlers `await` every query; positional params are `$1, $2, …`.
 
 **assignments** — canonical store for Canvas assignment state. Key fields:
 - `id` TEXT PRIMARY KEY — Canvas assignment ID (string)
@@ -92,6 +93,6 @@ In `/api/sync`, `gradeWatcher.check()` runs BEFORE `assignmentWatcher.sync()`. G
 - Directory traversal guard in server.js — do not weaken it
 - `DOMAIN` in two files — keep in sync
 - The hardcoded token fallback in server.js is a real token — never log or expose it
-- `agendi.db` is gitignored — do not add it
+- DB access is async — never call a query without `await`; `assignmentWatcher.sync()` wraps its work in a `BEGIN`/`COMMIT` transaction on a dedicated client
 - No React, no bundler, no TypeScript — keep it vanilla until Sprint 3 explicitly decides otherwise
 - Sprint 3 (auth + per-user tokens) is the next major milestone — the current app is single-user with one hardcoded token

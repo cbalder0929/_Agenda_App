@@ -1,3 +1,4 @@
+require('dotenv').config();
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -7,16 +8,18 @@ const assignmentWatcher = require('./services/assignmentWatcher');
 const gradeWatcher      = require('./services/gradeWatcher');
 const scheduler         = require('./services/scheduler');
 
-const notifStmts = {
-  list:     db.prepare(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50`),
-  unread:   db.prepare(`SELECT COUNT(*) as count FROM notifications WHERE read = 0`),
-  markOne:  db.prepare(`UPDATE notifications SET read = 1 WHERE id = ?`),
-  markAll:  db.prepare(`UPDATE notifications SET read = 1`)
-};
-
 const TOKEN = process.env.CANVAS_TOKEN || '11003~C4QCTAWmJQRWnrDPBk8XGTYveyYaCerfYUVXuMGBkZcCcr6hMHy3RFKmVUTzL4wK';
 const DOMAIN = 'canvas.colum.edu';
-const PORT = process.env.PORT || 3001;
+const HOST = '0.0.0.0';
+const PORT = Number(process.env.PORT) || 3001;
+
+process.on('uncaughtException', (error) => {
+  console.error('[startup] Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('[startup] Unhandled rejection:', error);
+});
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -40,20 +43,28 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // Notification routes
   if (req.method === 'GET' && req.url === '/api/notifications') {
-    const notifications = notifStmts.list.all();
-    const { count: unread } = notifStmts.unread.get();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ notifications, unread }));
+    try {
+      const { rows: notifications } = await db.query(
+        `SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50`
+      );
+      const { rows } = await db.query(
+        `SELECT COUNT(*)::int AS count FROM notifications WHERE read = 0`
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ notifications, unread: rows[0].count }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
   if (req.method === 'POST' && req.url === '/api/notifications/read') {
     try {
       const body = await readBody(req);
-      if (body.all) notifStmts.markAll.run();
-      else if (body.id != null) notifStmts.markOne.run(body.id);
+      if (body.all) await db.query(`UPDATE notifications SET read = 1`);
+      else if (body.id != null) await db.query(`UPDATE notifications SET read = 1 WHERE id = $1`, [body.id]);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     } catch (err) {
@@ -62,12 +73,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Assignment diff engine — browser POSTs normalized assignments after each load
   if (req.method === 'POST' && req.url === '/api/sync') {
     try {
       const { assignments } = await readBody(req);
-      const gradeNotifications = gradeWatcher.check(assignments);    // read old grades first
-      const newNotifications   = assignmentWatcher.sync(assignments); // then write new state
+      const gradeNotifications = await gradeWatcher.check(assignments);
+      const newNotifications   = await assignmentWatcher.sync(assignments);
       const notifications = [...gradeNotifications, ...newNotifications];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ newCount: notifications.length, notifications }));
@@ -80,7 +90,6 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
 
-  // Proxy Canvas API requests
   if (req.url.startsWith('/proxy')) {
     const canvasPath = req.url.replace(/^\/proxy/, '');
     const options = {
@@ -99,7 +108,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Serve static files
   let safeUrl = req.url === '/' ? '/canvas-assignments.html' : req.url;
   safeUrl = safeUrl.split('?')[0];
   const filePath = path.join(__dirname, safeUrl);
@@ -119,7 +127,20 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-  scheduler.start();
+server.on('error', (error) => {
+  console.error('[startup] Server failed to start:', error);
 });
+
+(async () => {
+  try {
+    await db.init();
+  } catch (error) {
+    console.error('[startup] Database init failed:', error.message);
+    process.exit(1);
+  }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`[startup] Server running at http://${HOST}:${PORT}`);
+    scheduler.start();
+  });
+})();

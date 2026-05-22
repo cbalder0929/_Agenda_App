@@ -1,19 +1,17 @@
 const db = require('../db');
 
-const stmts = {
-  getGrade: db.prepare(`SELECT grade, score FROM assignments WHERE id = ?`),
-  notify:   db.prepare(`
-    INSERT INTO notifications (type, assignment_id, message, created_at)
-    VALUES (@type, @assignmentId, @message, @now)
-  `)
-};
+const NOTIFY = `
+  INSERT INTO notifications (type, assignment_id, message, created_at)
+  VALUES ($1, $2, $3, $4)
+`;
 
-function check(assignments) {
+async function check(assignments) {
   const now = new Date().toISOString();
   const notifications = [];
 
   for (const a of assignments) {
-    const stored = stmts.getGrade.get(String(a.id));
+    const { rows } = await db.query('SELECT grade, score FROM assignments WHERE id = $1', [String(a.id)]);
+    const stored = rows[0];
     if (!stored) continue; // new assignment — assignmentWatcher handles it
 
     const gradeChanged = a.grade != null && a.grade !== stored.grade;
@@ -28,7 +26,7 @@ function check(assignments) {
       ? `Grade posted for "${a.name}" in ${a.courseName}: ${newValue}`
       : `Grade updated for "${a.name}" in ${a.courseName}: ${oldValue} → ${newValue}`;
 
-    stmts.notify.run({ type: 'grade_posted', assignmentId: String(a.id), message, now });
+    await db.query(NOTIFY, ['grade_posted', String(a.id), message, now]);
     notifications.push({ type: 'grade_posted', assignmentId: String(a.id), message });
   }
 

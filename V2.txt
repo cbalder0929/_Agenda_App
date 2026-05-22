@@ -1,0 +1,325 @@
+Work Session Plan (Co-Developer Breakdown)
+Phase 1 — Assignment + Grade Visibility
+Feature: Show grade received on assignment
+Current issue
+
+You already fetch assignments and submission states. But grades are not surfaced.
+
+Build
+
+Extend assignment model to include:
+
+assignment name
+due date
+course
+submission status
+grade
+score
+feedback/comments
+
+Canvas usually exposes this under:
+submission.score
+submission.grade
+submission.submission_comments
+
+UI Additions
+
+Card should show:
+
+Math Homework 3
+Due: May 25
+Status: Submitted
+Grade: 92%
+Feedback: Great work
+Pushback (Architecture)
+
+Do NOT calculate grade state in DOM render logic.
+
+Right now render() rebuilds everything from arrays. If you add conditional grade logic there, it becomes messy fast.
+
+Instead:
+
+normalizeAssignment(rawAssignment)
+
+Pre-process once before render.
+
+Deliverable
+
+Refactor data model layer.
+
+Phase 2 — New Assignment Detection
+Feature: Notify when new assignment received
+Logic
+
+Need to compare:
+Current Canvas pull
+vs
+Previous stored assignments
+
+Store locally
+
+Could use:
+
+localStorage (fastest)
+JSON file
+DB
+Pushback
+
+Do not use localStorage if you want multi-device sync later.
+
+Since Agendi is growing, use DB.
+
+Recommended:
+SQLite
+
+Reason:
+
+no setup
+Node compatible
+lightweight
+easier migration later
+Detection flow
+Fetch assignments
+Compare IDs
+If ID not found → New Assignment
+Create notification
+Save
+Deliverable
+
+Assignment diff engine.
+
+Phase 3 — Deadline Approaching Alerts
+Feature: Notify before due date
+Trigger examples
+24 hrs before
+3 hrs before
+overdue
+Architecture decision
+
+You need background checks.
+
+Pushback
+
+Do NOT run deadline checking in frontend JS.
+
+Bad:
+
+setInterval()
+
+in browser.
+
+Fails if tab closed.
+
+Better:
+Node background scheduler.
+
+Use:
+
+cron job
+polling service
+
+Flow:
+
+DB assignments
+Check due dates
+If threshold met
+Trigger notification
+Notification channels
+
+Phase 1:
+
+in-app alerts
+
+Later:
+
+email
+push notifications
+SMS
+Deliverable
+
+Notification scheduler.
+
+Phase 4 — Grade Received Notifications
+Feature: Notify when grade is posted
+Logic
+
+Need diff between:
+Previous submission score
+vs
+New submission score
+
+If:
+
+null → 95
+A → A-
+90 → 94
+
+Trigger.
+
+Suggested service
+GradeWatcher
+
+Responsibilities:
+
+compare old/new grades
+generate notification events
+Pushback
+
+Do NOT merge this into assignment polling.
+Separation matters.
+
+Use:
+
+AssignmentWatcher
+GradeWatcher
+
+Cleaner.
+
+Phase 5 — User Accounts
+Feature: Place to make account + connect student Canvas
+
+This is biggest architecture jump.
+
+Right now:
+Single token proxy server
+
+That won’t scale.
+
+Must change
+
+From:
+
+App-wide token
+
+To:
+
+Per-user Canvas connection
+Likely architecture
+
+User:
+Sign up →
+Login →
+Connect Canvas →
+Store access token →
+Fetch personal assignments
+
+Stack suggestion
+
+Auth:
+JWT or session cookies
+
+DB tables:
+Users
+CanvasConnections
+Assignments
+Notifications
+Grades
+
+Pushback
+
+Do NOT hardcode tokens anymore.
+That’s a security risk and blocks multiple users.
+
+Phase 6 — Notification Center UI
+
+Add:
+Bell icon 🔔
+
+Notification types:
+
+New assignment
+Grade posted
+Deadline soon
+Overdue
+
+Schema:
+
+{
+  id,
+  userId,
+  type,
+  message,
+  read,
+  createdAt
+}
+Phase 7 — Refactor App Structure
+
+Right now:
+Single-file frontend-heavy pattern
+
+That’s okay for MVP, but these features will grow complexity.
+
+Suggested structure:
+
+/server
+   server.js
+   routes/
+      auth.js
+      canvas.js
+      notifications.js
+   services/
+      assignmentWatcher.js
+      gradeWatcher.js
+      scheduler.js
+   db/
+      schema.sql
+
+/client
+   index.html
+   script.js
+   ui/
+      assignmentRenderer.js
+      notificationRenderer.js
+      authUI.js
+Pushback
+
+Do NOT jump to React yet.
+
+You’re still in:
+Node + vanilla JS
+
+You can scale this further before framework overhead.
+
+Priority Order (Best Build Sequence)
+Sprint 1 (Immediate)
+Show grades on assignment cards
+Add new assignment detection
+Add grade-posted detection
+Sprint 2
+Deadline alerts
+Notification center
+Sprint 3
+Authentication
+Per-user Canvas integration
+Persistent DB
+Sprint 4
+Push notifications
+Multi-device sync
+North-Star Architecture
+
+Eventually Agendi becomes:
+
+Canvas API
+   ↓
+Node Proxy/API
+   ↓
+Watchers (grade + assignment + deadlines)
+   ↓
+SQLite/Postgres
+   ↓
+Notification Engine
+   ↓
+Frontend Dashboard
+Biggest engineering risk
+
+Authentication + per-user Canvas tokens.
+
+Biggest technical debt risk
+
+Keeping all logic in script.js.
+
+Best immediate next task
+
+Refactor assignment normalization so grades become first-class data, then build watcher services on top of that.
+
+This is a solid project, Charles—especially for a CS student because it touches APIs, auth, data modeling, polling, notifications, and scalable architecture. If we co-build this, I’d start with Grade Visibility → Diff Engine → Watchers before touching auth.

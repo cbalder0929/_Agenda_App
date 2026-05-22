@@ -1,14 +1,32 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 const fs = require('fs');
+const path = require('path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'agendi.db');
-const db = new Database(DB_PATH);
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('[startup] DATABASE_URL is not set. Point it at your Postgres connection string (e.g. from Neon).');
+  process.exit(1);
+}
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
 
-const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-db.exec(schema);
+const pool = new Pool({
+  connectionString,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
+});
 
-module.exports = db;
+pool.on('error', (error) => {
+  console.error('[db] Idle client error:', error.message);
+});
+
+async function init() {
+  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+  await pool.query(schema);
+  console.log('[startup] Postgres schema ready');
+}
+
+function query(text, params) {
+  return pool.query(text, params);
+}
+
+module.exports = { pool, query, init };

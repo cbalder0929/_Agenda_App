@@ -1,235 +1,153 @@
-# Deploying Agendi to Azure App Service
+# Deploying Agendi for free (Render + Neon)
 
-This guide deploys the app to **Azure App Service (Linux)** using the Azure CLI. The free tier (F1) is enough to run the app.
+This guide deploys the app on **Render** (web host) with a **Neon** Postgres database. Both have genuinely free tiers — no credit card, no expiring trial credits.
 
-**Time to complete:** ~15 minutes
+**Why not Azure:** Azure's free trial gives $200 of credits for 30 days. When that runs out, Azure disables the whole subscription, which blocks *all* deploys — even the "free" F1 tier. Render's free tier doesn't expire.
 
----
+**Why Postgres instead of SQLite:** Render's free tier has an ephemeral filesystem — a local SQLite file would be wiped on every restart, resetting notification history and re-flagging every assignment as "new." Neon's free Postgres persists permanently.
 
-## Prerequisites
-
-- An [Azure account](https://azure.microsoft.com/free) (free tier works)
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
-- Git installed
-- The app running locally without errors first
+**Time to complete:** ~20 minutes
 
 ---
 
-## Step 1 — Log in to Azure
+## Step 1 — Create the database (Neon)
 
-```bash
-az login
-```
+1. Go to [neon.tech](https://neon.tech) and sign up (GitHub login works, no card needed).
+2. Create a new project — accept the defaults. A database is created for you.
+3. On the project dashboard, find the **Connection string** and copy it. It looks like:
 
-A browser window will open. Sign in with your Microsoft account. When it says "You have logged in," close the tab and return to the terminal.
+   ```
+   postgresql://user:password@ep-cool-name-12345.us-east-2.aws.neon.tech/neondb?sslmode=require
+   ```
 
-Confirm your subscription is active:
-
-```bash
-az account show
-```
+   Save this — it's your `DATABASE_URL`. The app creates its tables automatically on first start, so there's nothing else to set up here.
 
 ---
 
-## Step 2 — Create a resource group
+## Step 2 — Push the code to GitHub
 
-A resource group is a container for all the Azure resources this app will use.
+Render deploys from a GitHub repo.
 
 ```bash
-az group create --name agendi-rg --location eastus
+git add .
+git commit -m "Migrate to Postgres for Render deployment"
+git push
 ```
 
-You can use a different location (e.g. `centralus`, `westus2`). `eastus` is generally the cheapest.
+If you don't have a GitHub repo yet, create one at [github.com/new](https://github.com/new), then:
+
+```bash
+git remote add origin https://github.com/YOUR_USERNAME/agendi.git
+git branch -M main
+git push -u origin main
+```
+
+> The Canvas token is read from an environment variable in production — never commit it. `.env` is already gitignored.
 
 ---
 
-## Step 3 — Create the App Service plan
+## Step 3 — Create the web service on Render
 
-This is the server that runs your app. `F1` is the free tier.
+1. Go to [render.com](https://render.com) and sign up (GitHub login, no card needed).
+2. Click **New +** → **Web Service**.
+3. Connect your GitHub account and select the `agendi` repo.
+4. Fill in the settings:
 
-```bash
-az appservice plan create \
-  --name agendi-plan \
-  --resource-group agendi-rg \
-  --sku F1 \
-  --is-linux
-```
+   | Setting | Value |
+   |---------|-------|
+   | Runtime | Node |
+   | Build Command | `npm install` |
+   | Start Command | `npm start` |
+   | Instance Type | **Free** |
 
-> **Free tier limitation:** F1 apps go to sleep after 20 minutes of inactivity. The background deadline scheduler won't run while the app is asleep. If you want the scheduler always running, upgrade to **B1** (~$13/month) and enable Always On in Step 6.
+   (If the repo contains `render.yaml`, Render fills these in automatically — just confirm.)
 
----
-
-## Step 4 — Create the web app
-
-Replace `agendi-yourname` with a name that is globally unique (it becomes part of your URL).
-
-```bash
-az webapp create \
-  --name agendi-yourname \
-  --resource-group agendi-rg \
-  --plan agendi-plan \
-  --runtime "NODE:22-lts"
-```
-
-Your app URL will be: `https://agendi-yourname.azurewebsites.net`
+5. **Don't deploy yet** — set the environment variables first (Step 4).
 
 ---
 
-## Step 5 — Set environment variables
+## Step 4 — Set environment variables
 
-Azure calls these "app settings." Set your Canvas token and tell the DB where to write on persistent storage.
+In the Render service settings, open the **Environment** section and add:
 
-```bash
-az webapp config appsettings set \
-  --name agendi-yourname \
-  --resource-group agendi-rg \
-  --settings \
-    CANVAS_TOKEN="paste_your_token_here" \
-    DB_PATH="/home/agendi.db" \
-    NODE_ENV="production"
-```
+| Key | Value |
+|-----|-------|
+| `CANVAS_TOKEN` | your Canvas API token (Account → Settings → New Access Token) |
+| `DATABASE_URL` | the Neon connection string from Step 1 |
+| `NODE_ENV` | `production` |
 
-- `CANVAS_TOKEN` — your Canvas API token (from Account → Settings → Approved Integrations)
-- `DB_PATH="/home/agendi.db"` — puts the database in Azure's persistent `/home` directory so it survives redeployments
-- `NODE_ENV="production"` — standard Node.js production flag
+Do **not** set `PORT` — Render injects it automatically, and `server.js` already reads `process.env.PORT`.
 
-> Never put your token in the code or commit it to git.
+Click **Create Web Service**. Render runs `npm install` (no native build — `pg` is pure JavaScript) and starts the app. The first deploy takes 2–3 minutes.
 
 ---
 
-## Step 6 — (Optional) Enable Always On
+## Step 5 — Verify
 
-Only available on B1 and above. Keeps the app warm so the scheduler runs reliably.
+Render shows a URL like `https://agendi.onrender.com`. Open it.
 
-```bash
-az webapp config set \
-  --name agendi-yourname \
-  --resource-group agendi-rg \
-  --always-on true
-```
-
-Skip this on the free F1 tier — it is not supported and the command will error.
-
----
-
-## Step 7 — Deploy the code
-
-From the project root:
-
-```bash
-az webapp up \
-  --name agendi-yourname \
-  --resource-group agendi-rg \
-  --runtime "NODE:22-lts"
-```
-
-This zips your project, uploads it, and runs `npm install` on the server (which compiles `better-sqlite3`'s native module). It takes about 2–3 minutes the first time.
-
-You will see output like:
+If assignments load, the deployment worked. To watch what's happening, open the **Logs** tab in Render. On a healthy start you'll see:
 
 ```
-The webapp 'agendi-yourname' doesn't exist
-Creating Resource group 'agendi-rg' ...
-...
-Deployment successful.
-URL: https://agendi-yourname.azurewebsites.net
-```
-
----
-
-## Step 8 — Verify
-
-Open the URL in a browser:
-
-```
-https://agendi-yourname.azurewebsites.net
-```
-
-If assignments load, the deployment worked. If you see an error:
-
-```bash
-# Stream live logs
-az webapp log tail --name agendi-yourname --resource-group agendi-rg
+[startup] Postgres schema ready
+[startup] Server running at http://0.0.0.0:10000
+[scheduler] Running deadline checks every 15 min
 ```
 
 Common issues:
 
-| Error | Fix |
-|-------|-----|
-| `Cannot find module 'better-sqlite3'` | The native build failed. See Troubleshooting below. |
-| `401 Unauthorized` from Canvas | `CANVAS_TOKEN` app setting is missing or wrong. Check Step 5. |
+| Symptom | Fix |
+|---------|-----|
+| `DATABASE_URL is not set` | The env var is missing — recheck Step 4. |
+| Logs show a Postgres connection/SSL error | Re-copy the Neon connection string; keep the `?sslmode=require` suffix. |
+| `401 Unauthorized` from Canvas | `CANVAS_TOKEN` is missing or expired. |
 | Blank page, no assignments | Open browser devtools → Network tab, look for failed requests. |
-| `ENOENT agendi.db` | `DB_PATH` app setting is missing. Check Step 5. |
+
+---
+
+## Free tier behavior to know about
+
+- **Spin-down:** a free Render service sleeps after 15 minutes of inactivity. The next visit takes ~30–60 seconds to wake up. While asleep, the 15-minute deadline scheduler doesn't run — so deadline alerts catch up the next time you open the app, rather than firing in real time.
+- **Neon autosuspend:** the free database also pauses when idle and resumes on the next query (a second or two). No data is lost.
+- Both are fine for a personal assignment tracker. To remove spin-down, upgrade the Render service to a paid instance (~$7/month) — no code change needed.
 
 ---
 
 ## Redeploying after changes
 
-Every time you update the code, run:
+Render auto-deploys on every push to the connected branch:
 
 ```bash
-az webapp up --name agendi-yourname --resource-group agendi-rg
+git add .
+git commit -m "describe your change"
+git push
 ```
 
-The database at `/home/agendi.db` is **not** affected by redeployments — it lives outside the app directory.
+The Neon database is separate from the web service, so redeploys never touch your data.
+
+---
+
+## Running locally
+
+The app needs a `DATABASE_URL` even locally. Easiest option: reuse the same Neon string (or create a second Neon project as a dev database).
+
+Create a `.env` file in the project root (already gitignored):
+
+```
+CANVAS_TOKEN=your_token_here
+DATABASE_URL=postgresql://...your neon string...
+```
+
+Then load it and start the server. With Node 20.6+:
+
+```bash
+node --env-file=.env server.js
+```
+
+Open `http://localhost:3001`.
 
 ---
 
 ## Rotating your Canvas token
 
-```bash
-az webapp config appsettings set \
-  --name agendi-yourname \
-  --resource-group agendi-rg \
-  --settings CANVAS_TOKEN="new_token_here"
-```
-
-The app restarts automatically.
-
----
-
-## Shutting down / deleting everything
-
-Deletes the app and all associated resources:
-
-```bash
-az group delete --name agendi-rg --yes
-```
-
----
-
-## Troubleshooting: better-sqlite3 native build fails
-
-`better-sqlite3` compiles a C++ addon. If it fails on Azure you will see an error about `node-pre-gyp` or `binding.node`.
-
-**Fix — use prebuilt binaries:**
-
-```bash
-npm install better-sqlite3 --build-from-source=false
-```
-
-If that also fails, open `package.json` and add:
-
-```json
-"scripts": {
-  "postinstall": "npm rebuild better-sqlite3 --update-binary"
-}
-```
-
-Then redeploy.
-
-**Alternative — switch to node:sqlite (Node 22+ built-in):**
-
-Node 22 ships a built-in SQLite module (`node:sqlite`). No npm package needed. This requires rewriting `db/index.js` to use `require('node:sqlite')` instead of `better-sqlite3`. Ask Claude to do this migration if you want to remove the native dependency entirely.
-
----
-
-## Cost summary
-
-| Resource | Tier | Cost |
-|----------|------|------|
-| App Service Plan | F1 (free) | $0/month |
-| App Service Plan | B1 (Always On) | ~$13/month |
-| Outbound data | first 5 GB/month | $0 |
-
-The F1 tier has 60 CPU minutes/day. For a personal assignment tracker with occasional use, this is plenty.
+Update the `CANVAS_TOKEN` value in Render's Environment settings and save. Render restarts the service automatically.

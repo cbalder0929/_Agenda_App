@@ -1,65 +1,71 @@
 const db = require('../db');
 
-const stmts = {
-  exists: db.prepare(`SELECT 1 FROM assignments WHERE id = ?`),
+const UPSERT = `
+  INSERT INTO assignments
+    (id, course_id, course_name, name, due_at, created_at, points_possible,
+     submission_type, grade, score, is_turned_in, first_seen_at, updated_at)
+  VALUES
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+  ON CONFLICT (id) DO UPDATE SET
+    grade        = EXCLUDED.grade,
+    score        = EXCLUDED.score,
+    is_turned_in = EXCLUDED.is_turned_in,
+    updated_at   = EXCLUDED.updated_at
+`;
 
-  upsert: db.prepare(`
-    INSERT INTO assignments
-      (id, course_id, course_name, name, due_at, created_at, points_possible,
-       submission_type, grade, score, is_turned_in, first_seen_at, updated_at)
-    VALUES
-      (@id, @courseId, @courseName, @name, @dueAt, @createdAt, @pointsPossible,
-       @submissionType, @grade, @score, @isTurnedIn, @now, @now)
-    ON CONFLICT(id) DO UPDATE SET
-      grade        = excluded.grade,
-      score        = excluded.score,
-      is_turned_in = excluded.is_turned_in,
-      updated_at   = excluded.updated_at
-  `),
+const NOTIFY = `
+  INSERT INTO notifications (type, assignment_id, message, created_at)
+  VALUES ($1, $2, $3, $4)
+`;
 
-  notify: db.prepare(`
-    INSERT INTO notifications (type, assignment_id, message, created_at)
-    VALUES (@type, @assignmentId, @message, @now)
-  `)
-};
-
-const syncAll = db.transaction((assignments, now) => {
+async function sync(assignments) {
+  const now = new Date().toISOString();
   const created = [];
+  const client = await db.pool.connect();
 
-  for (const a of assignments) {
-    const isNew = !stmts.exists.get(String(a.id));
+  try {
+    await client.query('BEGIN');
 
-    stmts.upsert.run({
-      id:             String(a.id),
-      courseId:       String(a.courseId),
-      courseName:     a.courseName,
-      name:           a.name,
-      dueAt:          a.dueAt,
-      createdAt:      a.createdAt,
-      pointsPossible: a.pointsPossible,
-      submissionType: a.submissionType,
-      grade:          a.grade,
-      score:          a.score,
-      isTurnedIn:     a.isTurnedIn ? 1 : 0,
-      now
-    });
+    for (const a of assignments) {
+      const id = String(a.id);
+      const existing = await client.query('SELECT 1 FROM assignments WHERE id = $1', [id]);
+      const isNew = existing.rowCount === 0;
 
-    if (isNew) {
-      const dueLabel = a.dueAt
-        ? ` — due ${new Date(a.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-        : '';
-      const message = `New assignment: "${a.name}" in ${a.courseName}${dueLabel}`;
+      await client.query(UPSERT, [
+        id,
+        String(a.courseId),
+        a.courseName,
+        a.name,
+        a.dueAt,
+        a.createdAt,
+        a.pointsPossible,
+        a.submissionType,
+        a.grade,
+        a.score,
+        a.isTurnedIn ? 1 : 0,
+        now,
+      ]);
 
-      stmts.notify.run({ type: 'new_assignment', assignmentId: String(a.id), message, now });
-      created.push({ type: 'new_assignment', assignmentId: String(a.id), message });
+      if (isNew) {
+        const dueLabel = a.dueAt
+          ? ` — due ${new Date(a.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+          : '';
+        const message = `New assignment: "${a.name}" in ${a.courseName}${dueLabel}`;
+
+        await client.query(NOTIFY, ['new_assignment', id, message, now]);
+        created.push({ type: 'new_assignment', assignmentId: id, message });
+      }
     }
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 
   return created;
-});
-
-function sync(assignments) {
-  return syncAll(assignments, new Date().toISOString());
 }
 
 module.exports = { sync };
