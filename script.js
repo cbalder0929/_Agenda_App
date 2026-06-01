@@ -256,6 +256,10 @@ function render() {
         ? a.percentage >= 80 ? 'var(--success)' : a.percentage >= 60 ? 'var(--warning)' : 'var(--danger)'
         : 'var(--text)';
 
+      const ptsLine = a.percentage == null && a.grade == null && a.pointsPossible != null
+        ? `<div class="assignment-pts">${a.pointsPossible} pts possible</div>`
+        : '';
+
       const gradeBlock = a.percentage != null
         ? `<div class="assignment-score">
              <div class="score-val" style="color:${gradeColor}">${a.percentage}%</div>
@@ -263,9 +267,7 @@ function render() {
            </div>`
         : a.grade != null
           ? `<div class="assignment-score"><div class="score-val">${escHtml(String(a.grade))}</div></div>`
-          : a.pointsPossible != null
-            ? `<div class="assignment-score"><div class="score-sub">${a.pointsPossible} pts possible</div></div>`
-            : '';
+          : '';
 
       const feedbackBlock = a.feedback
         ? `<div class="assignment-feedback">${escHtml(a.feedback)}</div>`
@@ -283,6 +285,7 @@ function render() {
           </div>
           <div class="assignment-info">
             <div class="assignment-name">${escHtml(a.name)}</div>
+            ${ptsLine}
             <div class="assignment-course">${escHtml(a.courseName)}</div>
             <div class="assignment-meta">
               ${turnInTag}
