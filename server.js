@@ -8,7 +8,7 @@ const assignmentWatcher = require('./services/assignmentWatcher');
 const gradeWatcher      = require('./services/gradeWatcher');
 const scheduler         = require('./services/scheduler');
 
-const TOKEN = process.env.CANVAS_TOKEN || '11003~C4QCTAWmJQRWnrDPBk8XGTYveyYaCerfYUVXuMGBkZcCcr6hMHy3RFKmVUTzL4wK';
+const TOKEN = process.env.CANVAS_TOKEN || "11003~uLYnLW4VrJ4QArXCnhcYCH88Y9CMY7ww8LK6wJ4WACNWt3LmXyCwXEwVRxEa28CH";
 const DOMAIN = 'canvas.colum.edu';
 const HOST = '0.0.0.0';
 const PORT = Number(process.env.PORT) || 3001;
