@@ -8,7 +8,7 @@ const assignmentWatcher = require('./services/assignmentWatcher');
 const gradeWatcher      = require('./services/gradeWatcher');
 const scheduler         = require('./services/scheduler');
 
-const TOKEN = process.env.CANVAS_TOKEN || "11003~uLYnLW4VrJ4QArXCnhcYCH88Y9CMY7ww8LK6wJ4WACNWt3LmXyCwXEwVRxEa28CH";
+const TOKEN = process.env.CANVAS_TOKEN || "";
 const DOMAIN = 'canvas.colum.edu';
 const HOST = '0.0.0.0';
 const PORT = Number(process.env.PORT) || 3001;
@@ -96,7 +96,7 @@ const server = http.createServer(async (req, res) => {
       hostname: DOMAIN,
       path: canvasPath,
       method: 'GET',
-      headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' }
+      headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'User-Agent': 'Agendi/1.0' }
     };
 
     const proxy = https.request(options, (canvasRes) => {
