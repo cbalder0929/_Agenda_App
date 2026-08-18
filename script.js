@@ -82,6 +82,7 @@ function normalizeAssignment(raw) {
     courseName: raw._course?.name || 'Unknown course',
     dueAt: raw.due_at || null,
     createdAt: raw.created_at || null,
+    description: raw.description || null,
     dueStatus: classifyDue(raw.due_at),
     dueFormatted: formatDue(raw.due_at),
     isTurnedIn: state === 'submitted' || state === 'graded' || state === 'pending_review',
@@ -422,5 +423,37 @@ document.getElementById('course-select').addEventListener('change', e => {
 
 document.getElementById('search').addEventListener('input', render);
 
+async function initGoogleCalendar() {
+  const connectBtn = document.getElementById('gcal-connect-btn');
+  const syncBtn = document.getElementById('gcal-sync-btn');
+  const status = document.getElementById('gcal-status');
+
+  try {
+    const res = await fetch(`${PROXY_BASE}/api/calendar/status`);
+    const { connected } = await res.json();
+    connectBtn.style.display = connected ? 'none' : '';
+    syncBtn.style.display = connected ? '' : 'none';
+  } catch (_) {
+    // non-critical — leave both buttons hidden if the check fails
+  }
+
+  syncBtn.addEventListener('click', async () => {
+    syncBtn.disabled = true;
+    status.textContent = 'Syncing…';
+    try {
+      const res = await fetch(`${PROXY_BASE}/api/calendar/sync`, { method: 'POST' });
+      const data = await res.json();
+      status.textContent = res.ok
+        ? `Synced — ${data.created} new, ${data.updated} updated`
+        : `Error: ${data.error}`;
+    } catch (err) {
+      status.textContent = 'Sync failed';
+    } finally {
+      syncBtn.disabled = false;
+    }
+  });
+}
+
 load();
 loadNotifications();
+initGoogleCalendar();

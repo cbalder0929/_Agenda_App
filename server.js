@@ -7,6 +7,8 @@ const db                = require('./db');
 const assignmentWatcher = require('./services/assignmentWatcher');
 const gradeWatcher      = require('./services/gradeWatcher');
 const scheduler         = require('./services/scheduler');
+const googleAuth        = require('./services/googleAuth');
+const calendarSync      = require('./services/calendarSync');
 
 const TOKEN = process.env.CANVAS_TOKEN || "";
 const DOMAIN = 'canvas.colum.edu';
@@ -69,6 +71,50 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true }));
     } catch (err) {
       res.writeHead(400); res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/auth/google') {
+    res.writeHead(302, { Location: googleAuth.getAuthUrl() });
+    res.end();
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/auth/google/callback')) {
+    try {
+      const code = new URL(req.url, `http://${req.headers.host}`).searchParams.get('code');
+      if (!code) throw new Error('Missing authorization code');
+      await googleAuth.handleCallback(code);
+      res.writeHead(302, { Location: '/' });
+      res.end();
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Google authorization failed: ' + err.message);
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/api/calendar/status') {
+    try {
+      const connected = await googleAuth.isConnected();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ connected }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/calendar/sync') {
+    try {
+      const result = await calendarSync.syncDueDates();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
     }
     return;
   }

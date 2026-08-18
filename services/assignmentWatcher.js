@@ -2,11 +2,12 @@ const db = require('../db');
 
 const UPSERT = `
   INSERT INTO assignments
-    (id, course_id, course_name, name, due_at, created_at, points_possible,
+    (id, course_id, course_name, name, due_at, created_at, description, points_possible,
      submission_type, grade, score, is_turned_in, first_seen_at, updated_at)
   VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
   ON CONFLICT (id) DO UPDATE SET
+    description  = EXCLUDED.description,
     grade        = EXCLUDED.grade,
     score        = EXCLUDED.score,
     is_turned_in = EXCLUDED.is_turned_in,
@@ -38,6 +39,7 @@ async function sync(assignments) {
         a.name,
         a.dueAt,
         a.createdAt,
+        a.description,
         a.pointsPossible,
         a.submissionType,
         a.grade,
