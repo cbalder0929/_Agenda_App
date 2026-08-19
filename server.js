@@ -125,8 +125,18 @@ const server = http.createServer(async (req, res) => {
       const gradeNotifications = await gradeWatcher.check(assignments);
       const newNotifications   = await assignmentWatcher.sync(assignments);
       const notifications = [...gradeNotifications, ...newNotifications];
+
+      let calendarSyncResult = null;
+      if (newNotifications.length > 0 && await googleAuth.isConnected()) {
+        try {
+          calendarSyncResult = await calendarSync.syncDueDates();
+        } catch (err) {
+          console.error('[calendar] auto-sync on new assignment failed:', err.message);
+        }
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ newCount: notifications.length, notifications }));
+      res.end(JSON.stringify({ newCount: notifications.length, notifications, calendarSync: calendarSyncResult }));
     } catch (err) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
